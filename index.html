@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Interpreter's Dilemma</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap">
+<style>
+:root {
+  /* Layout: one centered reading column. A sticky bar carries progress and two meters.
+     Each moment is a speech line, a set of renderings to choose from, then a reveal
+     that shows the gap between what was meant and what landed. Palette is Iznik tile:
+     cobalt, a plum for the second speaker, teal for good, amber for middling, tile red for loss. */
+  --bg: #f3f5fa;
+  --surface: #ffffff;
+  --surface-2: #e8ecf5;
+  --fg: #101a33;
+  --muted: #54607d;
+  --line: #cdd5e6;
+  --cobalt: #1f3d8c;
+  --cobalt-soft: #dde5f8;
+  --on-cobalt: #ffffff;
+  --plum: #8a3a74;
+  --on-plum: #ffffff;
+  --good: #0f7b6c;
+  --good-soft: #d6efea;
+  --mid: #8f6200;
+  --mid-soft: #f7ebcf;
+  --bad: #c0392b;
+  --bad-soft: #fbe2de;
+  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1223;
+    --surface: #141c33;
+    --surface-2: #1d2742;
+    --fg: #e9edf8;
+    --muted: #9aa5c2;
+    --line: #2a3556;
+    --cobalt: #8fa8ff;
+    --cobalt-soft: #1b2a58;
+    --on-cobalt: #0c1223;
+    --plum: #e0a0d0;
+    --on-plum: #1d0f1a;
+    --good: #4cc7b4;
+    --good-soft: #12332f;
+    --mid: #e3b45a;
+    --mid-soft: #392d12;
+    --bad: #ff8a7a;
+    --bad-soft: #3d1b19;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1223;
+  --surface: #141c33;
+  --surface-2: #1d2742;
+  --fg: #e9edf8;
+  --muted: #9aa5c2;
+  --line: #2a3556;
+  --cobalt: #8fa8ff;
+  --cobalt-soft: #1b2a58;
+  --on-cobalt: #0c1223;
+  --plum: #e0a0d0;
+  --on-plum: #1d0f1a;
+  --good: #4cc7b4;
+  --good-soft: #12332f;
+  --mid: #e3b45a;
+  --mid-soft: #392d12;
+  --bad: #ff8a7a;
+  --bad-soft: #3d1b19;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.55;
+  padding-block: 0 3rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--bg);
+}
+.wrap { max-width: 42rem; margin-inline: auto; }
+h1, h2, h3, h4, p, dl, dd, ol, ul { margin: 0; }
+h1, h3.display { font-family: var(--font-display); font-weight: 400; }
+button { font: inherit; color: inherit; }
+
+/* Top bar */
+.top {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: var(--bg);
+  padding-block: 12px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+.top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 1.3rem; color: var(--cobalt); line-height: 1; }
+.mark { width: 22px; height: 22px; flex: none; }
+.progress { display: flex; gap: 4px; }
+.progress span { width: 22px; height: 4px; border-radius: 2px; background: var(--line); }
+.progress .is-done { background: var(--cobalt); }
+.progress .is-now { background: var(--fg); }
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.meter { min-width: 0; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.meter-head b { font-size: 0.875rem; letter-spacing: 0; color: var(--fg); font-variant-numeric: tabular-nums; }
+.track { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; transition: width 0.7s cubic-bezier(0.2, 0.7, 0.2, 1); }
+#mKeptBar { background: var(--cobalt); }
+#mTrustBar { background: var(--good); }
+
+/* Intro */
+.intro { display: grid; gap: 22px; padding-block: 48px 8px; }
+.eyebrow { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.intro h1 { font-size: clamp(2.8rem, 10vw, 5.2rem); line-height: 0.95; text-wrap: balance; color: var(--cobalt); }
+.lede { font-size: 1.125rem; max-width: 52ch; }
+.voices { display: flex; align-items: center; gap: 10px; padding-block: 10px; }
+.node { display: grid; justify-items: center; gap: 6px; text-align: center; font-size: 0.8125rem; line-height: 1.25; color: var(--muted); flex: none; }
+.node .mono { width: 48px; height: 48px; font-size: 1.1rem; }
+.you { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--cobalt); display: grid; place-items: center; color: var(--cobalt); }
+.you svg { width: 28px; height: 28px; }
+.link { flex: 1; min-width: 16px; border-top: 2px dashed var(--line); }
+.small { font-size: 0.875rem; color: var(--muted); }
+
+/* Buttons */
+.btn {
+  justify-self: start;
+  background: var(--cobalt);
+  color: var(--on-cobalt);
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; color: var(--cobalt); box-shadow: inset 0 0 0 1.5px var(--cobalt); }
+.btn:focus-visible, .opt:focus-visible, .literal-btn:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 2px; }
+
+/* Scene */
+.scene { display: grid; gap: 24px; padding-block: 28px 8px; }
+.scene-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); scroll-margin-top: 130px; }
+.scene-label:focus { outline: none; }
+.setup { color: var(--muted); max-width: 60ch; }
+.speaker { display: grid; gap: 12px; padding-top: 22px; border-top: 1px solid var(--line); }
+.who { display: flex; align-items: center; gap: 12px; }
+.mono { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.95rem; flex: none; }
+.mono.nuri { background: var(--cobalt); color: var(--on-cobalt); }
+.mono.dana { background: var(--plum); color: var(--on-plum); }
+.who-name { font-weight: 600; line-height: 1.2; }
+.who-role { font-size: 0.8125rem; color: var(--muted); }
+.line { font-family: var(--font-display); font-size: clamp(1.8rem, 5.6vw, 2.7rem); line-height: 1.14; text-wrap: balance; }
+.literal-btn { justify-self: start; background: none; border: 0; padding: 0; color: var(--cobalt); font-size: 0.875rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.literal { font-style: italic; color: var(--muted); max-width: 60ch; }
+.choose { display: grid; gap: 14px; }
+.prompt { font-family: var(--font-display); font-weight: 400; font-size: 1.6rem; line-height: 1.1; }
+.options { display: grid; gap: 10px; }
+.opt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.opt:hover:not(:disabled) { border-color: var(--cobalt); }
+.opt:disabled { cursor: default; color: var(--fg); opacity: 1; }
+.opt.is-chosen { border-color: var(--cobalt); background: var(--cobalt-soft); box-shadow: inset 0 0 0 1px var(--cobalt); }
+.opt-letter { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; background: var(--surface-2); font-weight: 600; font-size: 0.875rem; }
+.opt-body { display: grid; gap: 6px; min-width: 0; }
+.opt-text { overflow-wrap: anywhere; }
+.opt-gloss { font-size: 0.875rem; font-style: italic; color: var(--muted); }
+.opt-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.tag { display: inline-block; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 4px; background: var(--surface-2); color: var(--muted); }
+.tag.t-good { background: var(--good-soft); color: var(--good); }
+.tag.t-mid { background: var(--mid-soft); color: var(--mid); }
+.tag.t-bad { background: var(--bad-soft); color: var(--bad); }
+.tag.t-cobalt { background: var(--cobalt); color: var(--on-cobalt); }
+
+/* Reveal */
+.reveal { scroll-margin-top: 130px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 20px; display: grid; gap: 18px; }
+.rv-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rv-top h3 { font-family: var(--font-display); font-weight: 400; font-size: 1.6rem; line-height: 1.1; }
+.rv-top h3:focus { outline: none; }
+.heard { max-width: 60ch; }
+.gap { display: flex; height: 14px; border-radius: 3px; overflow: hidden; border: 1px solid var(--line); background: var(--bad-soft); }
+.gap-kept { width: var(--kept); background: var(--cobalt); animation: grow 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.gap-lost { flex: 1; background: repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 7px); }
+@keyframes grow { from { width: 0; } }
+.gap-legend { display: flex; justify-content: space-between; margin-top: 6px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.gap-legend .kept { color: var(--cobalt); font-weight: 600; }
+.gap-legend .lost { color: var(--bad); font-weight: 600; }
+.rv-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.rv-cols > div { min-width: 0; display: grid; gap: 4px; align-content: start; }
+.rv-cols h4, .section-h { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+@media (max-width: 560px) { .rv-cols { grid-template-columns: 1fr; } }
+
+/* Ending */
+.end { display: grid; gap: 28px; padding-block: 36px 8px; }
+.end-title { font-family: var(--font-display); font-weight: 400; font-size: clamp(2.4rem, 8vw, 4rem); line-height: 1; text-wrap: balance; color: var(--cobalt); scroll-margin-top: 20px; }
+.end-title:focus { outline: none; }
+.end-text { font-size: 1.125rem; max-width: 56ch; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.stat { display: grid; gap: 2px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.stat b { font-family: var(--font-display); font-weight: 400; font-size: 3rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 0.8125rem; color: var(--muted); }
+.block { display: grid; gap: 12px; }
+.recap { list-style: none; padding: 0; display: grid; }
+.recap li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding-block: 12px; border-bottom: 1px solid var(--line); }
+.recap b { font-weight: 600; }
+.recap small { display: block; color: var(--muted); font-size: 0.875rem; }
+.habits { padding: 0; list-style: none; display: grid; gap: 10px; }
+.habits li { max-width: 60ch; }
+.habits b { font-weight: 600; }
+.glossary { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 10px 20px; }
+.glossary dt { font-family: var(--font-display); font-size: 1.35rem; line-height: 1.2; }
+.glossary dd { color: var(--muted); }
+@media (max-width: 560px) { .glossary { grid-template-columns: 1fr; gap: 2px; } .glossary dd { margin-bottom: 10px; } }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 0.8125rem; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+body { margin: 0; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="top" hidden>
+    <div class="top-row">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="5.5" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="5.5" y="5.5" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" transform="rotate(45 12 12)"/></svg>
+        <span>The Interpreter's Dilemma</span>
+      </div>
+      <div class="progress" id="progress" role="img" aria-label="Progress"></div>
+    </div>
+    <div class="meters">
+      <div class="meter">
+        <div class="meter-head"><span>Meaning kept</span><b id="mKept">&ndash;</b></div>
+        <div class="track"><i id="mKeptBar"></i></div>
+      </div>
+      <div class="meter">
+        <div class="meter-head"><span>Trust in the room</span><b id="mTrust">50</b></div>
+        <div class="track"><i id="mTrustBar"></i></div>
+      </div>
+    </div>
+  </header>
+
+  <main id="stage"></main>
+
+  <footer class="foot">Made by Hanan Sahin. Hoca Nuri, Dana Whitfield and the program they work with are fictional.</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /*DATA*/
+  var PEOPLE = {
+    nuri: { name: "Hoca Nuri", role: "Master calligrapher", mono: "N", cls: "nuri" },
+    dana: { name: "Dana Whitfield", role: "Program director", mono: "D", cls: "dana" }
+  };
+
+  var SCENES = [
+    {
+      topic: "Greeting",
+      setup: "The video call connects. Hoca Nuri, a master calligrapher, begins by thanking the program for meeting with him. Dana Whitfield, who directs it, waits for your English.",
+      speaker: "nuri", from: "Turkish",
+      line: "Allah razı olsun, bizi dinlediğiniz için çok teşekkür ederiz.",
+      literal: "May God be pleased with you. We thank you very much for listening to us.",
+      meant: "A warm, formal thank-you. The first phrase asks God to be pleased with the listener, and it is a common way to express gratitude.",
+      prompt: "How do you say it in English?",
+      heardLabel: "What Dana heard",
+      options: [
+        { text: "Thanks for your time.", kept: 55, trust: 0, verdict: "Accurate but flat",
+          heard: "Dana hears a polite thank-you and answers in a brisk, businesslike way. The warmth he opened with never reaches her.",
+          note: "Nothing here is wrong, and nothing extra is carried over. A greeting sets the tone for the rest of the meeting, so flattening it has a cost later." },
+        { text: "May God be pleased with you. That’s a warm way of thanking you for hearing him out.", kept: 96, trust: 10, verdict: "Carries meaning and tone",
+          heard: "Dana hears the phrase as he said it, plus what it is for. She thanks him warmly in return, and the call starts on the right footing.",
+          note: "You kept the phrase and explained its job in one short sentence. Render first, then explain only what the listener can’t guess." },
+        { text: "He says thank you. That’s just a religious expression, so you can ignore it.", kept: 20, trust: -16, verdict: "Overstepped",
+          heard: "Dana hears that part of what he said doesn’t count. She isn’t sure how to answer the rest of the greeting, so she skips it.",
+          note: "You decided for Dana which parts matter, and you described Hoca Nuri in a way he would not like to hear in English. An interpreter passes meaning along. Ranking it is not the job." }
+      ]
+    },
+    {
+      topic: "A term with no tidy English",
+      setup: "Dana asks how the spring students are progressing. Hoca Nuri answers with a word that has no neat equivalent in English.",
+      speaker: "nuri", from: "Turkish",
+      line: "Öğrencilerim sülüs hattında henüz icazet almaya hazır değiller.",
+      literal: "My students, in the thuluth script, are not yet ready to receive icazet.",
+      meant: "His students have not reached the level where he would grant them an icazet, a master’s traditional authorization, in the thuluth script.",
+      prompt: "How do you say it in English?",
+      heardLabel: "What Dana heard",
+      options: [
+        { text: "His students aren’t ready for the exam yet.", kept: 40, trust: -8, verdict: "Wrong kind of event",
+          heard: "Dana starts looking for a date to schedule an exam. There isn’t one to find.",
+          note: "An icazet is not an exam with a date. A master grants it when he judges a student’s hand ready. Calling it an exam invites a calendar for something that runs on his judgment." },
+        { text: "His students aren’t ready for the icazet yet. That’s the traditional authorization a master grants in a script, here thuluth, once a student’s hand meets his standard.", kept: 94, trust: 10, verdict: "Term kept and explained",
+          heard: "Dana learns a new word, what it means, and that the timeline rests on Hoca Nuri’s judgment. She asks how the program can support the students instead of asking for a date.",
+          note: "You kept the original term so it can be used again later in the meeting, and you explained it once. A shared word gives both sides something to build on." },
+        { text: "His students aren’t ready for their diploma.", kept: 30, trust: -8, verdict: "Wrong kind of credential",
+          heard: "Dana pictures a certificate from an institution and begins asking about accreditation and a ceremony.",
+          note: "A diploma comes from an institution. An icazet comes from a person. The difference changes how the program can describe what it offers." }
+      ]
+    },
+    {
+      topic: "Scheduling",
+      setup: "Dana needs a start time that works for students in several time zones.",
+      speaker: "nuri", from: "Turkish",
+      line: "Dersi ikindiden sonraya koyalım; o saatte ışık da güzel oluyor.",
+      literal: "Let’s put the lesson after ikindi. At that hour the light is also good.",
+      meant: "He wants class after the afternoon prayer. The hour matters to him partly because the light is good for writing then. He gave no clock time and no time zone.",
+      prompt: "How do you say it in English?",
+      heardLabel: "What Dana heard",
+      options: [
+        { text: "Let’s do it at 4 p.m.", kept: 25, trust: -16, verdict: "Invented a number",
+          heard: "Dana puts 4 p.m. in the calendar for dozens of students. Nobody has said which time zone he means, or which hour the afternoon prayer falls on, and that hour moves through the year.",
+          note: "You supplied a fact he never gave. When a speaker is vague, the vagueness belongs to him, and a guess made by the interpreter becomes a commitment." },
+        { text: "He suggests after the afternoon prayer, when the light is good. That time shifts with the seasons, so I’d like to ask him which clock time and time zone he means. One moment.", kept: 95, trust: 10, verdict: "Clarified out loud",
+          heard: "Dana knows what he wants and why. She agrees to wait for a clock time instead of guessing.",
+          note: "Stopping to clarify is part of the job. Say aloud that you are the one asking, so neither side wonders why the conversation paused." },
+        { text: "He says sometime later in the afternoon, whenever works.", kept: 45, trust: -8, verdict: "Added “whenever”",
+          heard: "Dana hears flexibility he never offered, and proposes a time that cuts into the daylight he cares about.",
+          note: "Dropping the light made the request sound arbitrary, and “whenever works” is an addition. Small additions like this are how a speaker ends up agreeing to things he didn’t say." }
+      ]
+    },
+    {
+      topic: "Payment",
+      setup: "Dana has asked whether the proposed fee for the spring term works for him.",
+      speaker: "nuri", from: "Turkish",
+      line: "Ücret konusunda size güveniyorum; nasıl uygun görürseniz öyle olsun.",
+      literal: "On the subject of the fee, I trust you. However you see fit, let it be so.",
+      meant: "“I trust you on payment, however you see fit.” This is often said out of courtesy, as a way of leaving the figure to the host. It does not necessarily mean he has no figure in mind.",
+      prompt: "How do you say it in English?",
+      heardLabel: "What Dana heard",
+      options: [
+        { text: "He says whatever you pay is fine.", kept: 45, trust: -8, verdict: "Courtesy became indifference",
+          heard: "Dana hears that the number doesn’t matter to him and treats the question as closed.",
+          note: "“Whatever you pay is fine” turns a courtesy into a statement of indifference. The sentence is about the same length and makes a different promise." },
+        { text: "He says: “I trust you on payment. However you see fit.”", kept: 78, trust: 3, verdict: "Faithful, but easy to misread",
+          heard: "Dana hears his words as he said them. She can’t tell whether it is a courtesy or an open invitation, and she may guess wrong.",
+          note: "Faithful and defensible. In a conversation about money, though, a one-line courtesy can be mistaken for an instruction, and a short note about how it is meant would help." },
+        { text: "He says: “I trust you on payment. However you see fit.” That’s often said out of courtesy and doesn’t necessarily mean he has no figure in mind. I can ask him directly if you’d like.", kept: 95, trust: 10, verdict: "Words and register",
+          heard: "Dana understands his words and how they are meant. She asks you to find out whether he has a figure in mind, and the question stays open instead of being guessed at.",
+          note: "You gave Dana what she needs to understand him, and the decision stayed with the two of them." },
+        { text: "He trusts you, but he’s very experienced, so I’d suggest offering a generous fee.", kept: 20, trust: -16, verdict: "Advice added",
+          heard: "Dana hears the interpreter’s opinion mixed in with the speaker’s words and can’t tell which is which. She starts to wonder whose side you are on.",
+          note: "Once you add advice, neither party can be sure your words are his. Neutrality is what lets both of them rely on you." }
+      ]
+    },
+    {
+      topic: "Idioms, the other direction",
+      setup: "Now Dana speaks in English and you render her into Turkish for Hoca Nuri. Her sentence is full of idioms. The options are in Turkish, each with an English back-translation underneath.",
+      speaker: "dana", from: "English",
+      line: "We’re running behind, so let’s circle back on the review offline and keep the ball rolling.",
+      meant: "The schedule has slipped. She wants to set the review topic aside for now, settle it outside this meeting, and keep the other work moving.",
+      prompt: "How do you say it in Turkish?",
+      heardLabel: "What Hoca Nuri heard",
+      options: [
+        { text: "Geride kaldık; değerlendirme konusuna daire çizerek geri dönelim ve topu yuvarlamaya devam edelim.", lang: "tr",
+          gloss: "We’re behind; let’s go back to the review topic by drawing a circle and keep rolling the ball.",
+          kept: 20, trust: -8, verdict: "Word for word",
+          heard: "Hoca Nuri hears about circles and rolling balls. He smiles politely and waits for the real meaning.",
+          note: "Idioms rarely travel. Carry the idea, not the pictures." },
+        { text: "Programda biraz geriye düştük. Değerlendirme konusunu şimdi bırakıp toplantı dışında netleştirelim; bu arada diğer işlerimiz ilerlesin.", lang: "tr",
+          gloss: "We’ve fallen a little behind in the program. Let’s set the review topic aside now and settle it outside the meeting; meanwhile, let our other work move forward.",
+          kept: 95, trust: 10, verdict: "Idea carried",
+          heard: "Hoca Nuri hears a clear plan: the review is not cancelled, and the rest of the work continues. He agrees.",
+          note: "You kept the plan and let the images go." },
+        { text: "Geç kaldık, o yüzden bu konuyu konuşmayalım.", lang: "tr",
+          gloss: "We’re late, so let’s not discuss this topic.",
+          kept: 35, trust: -16, verdict: "Cancelled the topic",
+          heard: "Hoca Nuri hears that the review has been dropped, and that his view on it is not wanted. He stops raising it.",
+          note: "A shorter sentence isn’t always a safer one. This version cancels something she only postponed." }
+      ]
+    },
+    {
+      topic: "The quiet question",
+      setup: "Dana has just made her offer. Hoca Nuri turns toward you and lowers his voice. Dana can see him speaking but can’t follow it.",
+      speaker: "nuri", from: "Turkish",
+      line: "Evladım, sen ne dersin, bu teklif adil mi?",
+      literal: "My child, what do you say? Is this offer fair?",
+      meant: "“My child, what do you say, is this offer fair?” He is asking for your personal opinion, in the warm way an elder speaks to someone younger.",
+      prompt: "What do you do?",
+      heardLabel: "What the room took from it",
+      options: [
+        { text: "Answer him quietly in Turkish: “Honestly, it looks low to me. I’d ask for more.”", kept: 10, trust: -16, verdict: "Left the role",
+          heard: "Dana watches a private exchange she can’t follow, then sees him sit up and push back. She never learns why, and she starts to wonder whose side you are on.",
+          note: "You gave him an opinion, and he will now treat it as an expert’s. You also stopped being neutral: you shaped the negotiation from inside it." },
+        { text: "Decline quietly in Turkish: “Hocam, I’m only here to interpret, so I can’t advise you on that.”", kept: 60, trust: 3, verdict: "Right instinct, half done",
+          heard: "Dana sees a private exchange that nobody explains. She doesn’t know what was asked, and she can’t answer a question she never heard.",
+          note: "Declining protects your role. But the question was about her offer, and an exchange she can’t follow can make her uneasy. Say it aloud for both." },
+        { text: "Tell both: “Hoca Nuri has asked me whether I think the offer is fair. I can’t weigh in as the interpreter, but he is welcome to ask you about it directly, and I will interpret everything.” Then say the same to him in Turkish.", kept: 96, trust: 10, verdict: "Role kept, nobody left out",
+          heard: "Both of them know what was asked and why you won’t answer. Hoca Nuri turns and asks Dana the question himself.",
+          note: "Nothing said in the room is hidden from either side, and the question goes back to the person who can answer it." }
+      ]
+    }
+  ];
+
+  var GLOSSARY = [
+    ["Allah razı olsun", "“May God be pleased with you.” A common way to say thank you."],
+    ["Hoca", "Teacher or master. Used respectfully before a name or in place of one."],
+    ["İcazet", "A master’s traditional authorization to a student, given when the master judges the student’s hand ready. In calligraphy it is given for a particular script."],
+    ["Sülüs", "Thuluth, a classical calligraphic script known for large, flowing, curved forms."],
+    ["İkindi", "The afternoon prayer, and the time of day when it falls. Its clock time shifts through the year."],
+    ["Evladım", "“My child.” A warm way for an elder to address someone younger."]
+  ];
+
+  var HABITS = [
+    ["Carry the meaning, not only the words.", "Thanks, idioms and tone are part of what was said."],
+    ["Keep specialist terms and explain them once.", "Both sides can then reuse the word."],
+    ["Ask instead of guessing.", "Say aloud that you are the one asking."],
+    ["Stay neutral and keep both sides informed.", "Anything said to you in the room belongs to the room."]
+  ];
+
+  var ENDINGS = {
+    gold: { title: "Both sides left with the same meeting.", text: "Dana knows what Hoca Nuri meant, and he knows what Dana proposed. Terms were kept and explained, nothing was invented, and each of them could rely on you." },
+    silver: { title: "Most of it came through.", text: "The meeting ran and the main points landed. A few renderings shifted a meaning or left someone guessing, and those are the places where a follow-up message would be needed." },
+    bronze: { title: "Two different meetings.", text: "Dana and Hoca Nuri each left with a picture of the meeting, and the pictures don’t match. Play it again and look at where the gap bar opened widest." }
+  };
+  /*END*/
+
+  var S = { phase: "intro", i: 0, picks: [], orders: [], hint: false };
+  var stage = document.getElementById("stage");
+  var topEl = document.getElementById("top");
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function shuffle(n) {
+    var a = [], k, j, t;
+    for (k = 0; k < n; k++) a.push(k);
+    for (k = n - 1; k > 0; k--) {
+      j = Math.floor(Math.random() * (k + 1));
+      t = a[k]; a[k] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+  function tier(k) { return k >= 85 ? "good" : k >= 60 ? "mid" : "bad"; }
+  function bestIndex(sc) {
+    var b = 0;
+    sc.options.forEach(function (o, k) { if (o.kept > sc.options[b].kept) b = k; });
+    return b;
+  }
+  function fmtDelta(d) { return d > 0 ? "+" + d : d < 0 ? "−" + Math.abs(d) : "no change"; }
+  function smooth() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: no-preference)").matches ? "smooth" : "auto";
+  }
+
+  function stats() {
+    var kept = 0, trust = 50, n = 0;
+    S.picks.forEach(function (p, idx) {
+      if (typeof p !== "number") return;
+      var o = SCENES[idx].options[p];
+      kept += o.kept; trust += o.trust; n++;
+    });
+    return { kept: n ? Math.round(kept / n) : null, trust: Math.max(0, Math.min(100, trust)), n: n };
+  }
+
+  function updateTop() {
+    var st = stats();
+    document.getElementById("mKept").textContent = st.kept === null ? "–" : st.kept + "%";
+    document.getElementById("mKeptBar").style.width = (st.kept === null ? 0 : st.kept) + "%";
+    document.getElementById("mTrust").textContent = st.trust;
+    document.getElementById("mTrustBar").style.width = st.trust + "%";
+    var p = document.getElementById("progress");
+    var h = "";
+    SCENES.forEach(function (_, idx) {
+      var done = typeof S.picks[idx] === "number";
+      var cls = done ? "is-done" : (idx === S.i && S.phase === "play" ? "is-now" : "");
+      h += '<span class="' + cls + '"></span>';
+    });
+    if (S.phase === "end") h = h.replace(/is-now/g, "is-done");
+    p.innerHTML = h;
+    p.setAttribute("aria-label", "Moment " + Math.min(S.i + 1, SCENES.length) + " of " + SCENES.length);
+  }
+
+  function renderIntro() {
+    topEl.hidden = true;
+    stage.innerHTML =
+      '<section class="intro">' +
+        '<p class="eyebrow">An interpreting game</p>' +
+        '<h1>The Interpreter’s Dilemma</h1>' +
+        '<p class="lede">Hoca Nuri speaks Turkish. Dana Whitfield speaks English. You are the only person in the meeting who understands both.</p>' +
+        '<div class="voices" aria-hidden="true">' +
+          '<div class="node"><span class="mono nuri">N</span><span>Hoca Nuri<br>Turkish</span></div>' +
+          '<div class="link"></div>' +
+          '<div class="node"><span class="you"><svg viewBox="0 0 24 24"><rect x="5.5" y="5.5" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="5.5" y="5.5" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" transform="rotate(45 12 12)"/></svg></span><span>You</span></div>' +
+          '<div class="link"></div>' +
+          '<div class="node"><span class="mono dana">D</span><span>Dana<br>English</span></div>' +
+        '</div>' +
+        '<p>Nuri is a master calligrapher who teaches in an online program. Dana directs it. They are working out the spring term, and every sentence passes through you.</p>' +
+        '<p>There are six moments. For each one, choose how you would say it aloud, then see what the other person took from it.</p>' +
+        '<button type="button" class="btn" id="begin">Begin the meeting</button>' +
+        '<p class="small">About five minutes. No Turkish needed: any Turkish line can show its literal words.</p>' +
+      '</section>';
+    document.getElementById("begin").addEventListener("click", function () {
+      S.phase = "play"; S.i = 0; S.hint = false;
+      render();
+      focusId("sc-label", true);
+    });
+  }
+
+  function renderScene() {
+    topEl.hidden = false;
+    var sc = SCENES[S.i], who = PEOPLE[sc.speaker];
+    var order = S.orders[S.i], picked = S.picks[S.i];
+    var done = typeof picked === "number";
+    var best = bestIndex(sc);
+    var last = S.i === SCENES.length - 1;
+    var h = '<section class="scene" aria-labelledby="sc-label">';
+    h += '<h2 class="scene-label" id="sc-label" tabindex="-1">Moment ' + (S.i + 1) + " of " + SCENES.length + " · " + esc(sc.topic) + "</h2>";
+    h += '<p class="setup">' + esc(sc.setup) + "</p>";
+    h += '<div class="speaker"><div class="who"><span class="mono ' + who.cls + '" aria-hidden="true">' + who.mono + "</span>" +
+         '<div><div class="who-name">' + esc(who.name) + '</div><div class="who-role">' + esc(who.role) + " · speaking " + sc.from + "</div></div></div>";
+    h += '<p class="line" lang="' + (sc.from === "Turkish" ? "tr" : "en") + '">“' + esc(sc.line) + "”</p>";
+    if (sc.literal) {
+      h += '<button type="button" class="literal-btn" id="hint" aria-expanded="' + (S.hint ? "true" : "false") + '">' + (S.hint ? "Hide" : "Show") + " the literal words</button>";
+      if (S.hint) h += '<p class="literal">' + esc(sc.literal) + "</p>";
+    }
+    h += "</div>";
+    h += '<div class="choose"><h3 class="prompt">' + esc(sc.prompt) + '</h3><div class="options" role="group" aria-label="Your options">';
+    order.forEach(function (k, pos) {
+      var o = sc.options[k], chosen = done && picked === k;
+      h += '<button type="button" class="opt' + (chosen ? " is-chosen" : "") + '" data-k="' + k + '"' + (done ? " disabled" : "") + ">";
+      h += '<span class="opt-letter" aria-hidden="true">' + String.fromCharCode(65 + pos) + "</span>";
+      h += '<span class="opt-body"><span class="opt-text"' + (o.lang ? ' lang="' + o.lang + '"' : "") + ">" + esc(o.text) + "</span>";
+      if (o.gloss) h += '<span class="opt-gloss">In English: ' + esc(o.gloss) + "</span>";
+      if (done) {
+        h += '<span class="opt-tags">' +
+          (chosen ? '<span class="tag t-cobalt">Your pick</span>' : "") +
+          (k === best ? '<span class="tag t-good">Best</span>' : "") +
+          '<span class="tag t-' + tier(o.kept) + '">' + o.kept + "% kept</span>" +
+          '<span class="tag">' + esc(o.verdict) + "</span></span>";
+      }
+      h += "</span></button>";
+    });
+    h += "</div></div>";
+    if (done) {
+      var o2 = sc.options[picked];
+      h += '<section class="reveal" id="reveal" aria-labelledby="rv-h">' +
+        '<div class="rv-top"><h3 id="rv-h" tabindex="-1">' + esc(sc.heardLabel) + "</h3>" +
+        '<span class="tag ' + (o2.trust > 0 ? "t-good" : o2.trust < 0 ? "t-bad" : "") + '">Trust: ' + fmtDelta(o2.trust) + "</span></div>" +
+        '<p class="heard">' + esc(o2.heard) + "</p>" +
+        "<div>" +
+          '<div class="gap" role="img" aria-label="' + o2.kept + "% of the meaning kept, " + (100 - o2.kept) + '% lost" style="--kept:' + o2.kept + '%"><div class="gap-kept"></div><div class="gap-lost"></div></div>' +
+          '<div class="gap-legend"><span class="kept">Kept ' + o2.kept + '%</span><span class="lost">Lost ' + (100 - o2.kept) + "%</span></div>" +
+        "</div>" +
+        '<div class="rv-cols"><div><h4>What was meant</h4><p>' + esc(sc.meant) + '</p></div><div><h4>Interpreter’s note</h4><p>' + esc(o2.note) + "</p></div></div>" +
+        '<button type="button" class="btn" id="next">' + (last ? "See how the meeting went" : "Next moment") + "</button>" +
+      "</section>";
+    }
+    h += "</section>";
+    stage.innerHTML = h;
+
+    Array.prototype.forEach.call(stage.querySelectorAll(".opt:not([disabled])"), function (b) {
+      b.addEventListener("click", function () {
+        S.picks[S.i] = parseInt(b.getAttribute("data-k"), 10);
+        render();
+        focusId("rv-h", true);
+      });
+    });
+    var hint = document.getElementById("hint");
+    if (hint) hint.addEventListener("click", function () {
+      S.hint = !S.hint;
+      var y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+      var again = document.getElementById("hint");
+      if (again) again.focus({ preventScroll: true });
+    });
+    var next = document.getElementById("next");
+    if (next) next.addEventListener("click", function () {
+      if (S.i < SCENES.length - 1) {
+        S.i++; S.hint = false;
+        render();
+        window.scrollTo(0, 0);
+        focusId("sc-label", false);
+      } else {
+        S.phase = "end";
+        render();
+        window.scrollTo(0, 0);
+        focusId("end-h", false);
+      }
+    });
+  }
+
+  function endingFor() {
+    var st = stats();
+    if (st.kept >= 85 && st.trust >= 80) return ENDINGS.gold;
+    if (st.kept >= 65 && st.trust >= 50) return ENDINGS.silver;
+    return ENDINGS.bronze;
+  }
+
+  function renderEnd() {
+    topEl.hidden = false;
+    var st = stats(), e = endingFor();
+    var h = '<section class="end" aria-labelledby="end-h">';
+    h += '<p class="eyebrow">The meeting is over</p>';
+    h += '<h2 class="end-title" id="end-h" tabindex="-1">' + esc(e.title) + "</h2>";
+    h += '<p class="end-text">' + esc(e.text) + "</p>";
+    h += '<div class="stats"><div class="stat"><b>' + st.kept + '%</b><span>of the meaning kept, on average</span></div><div class="stat"><b>' + st.trust + '</b><span>trust in the room, out of 100</span></div></div>';
+    h += '<div class="block"><h3 class="section-h">How each moment went</h3><ol class="recap">';
+    SCENES.forEach(function (sc, idx) {
+      var o = sc.options[S.picks[idx]];
+      h += "<li><div><b>" + esc(sc.topic) + "</b><small>" + esc(o.verdict) + '</small></div><span class="tag t-' + tier(o.kept) + '">' + o.kept + "% kept</span></li>";
+    });
+    h += "</ol></div>";
+    h += '<div class="block"><h3 class="section-h">What the meeting practiced</h3><ul class="habits">';
+    HABITS.forEach(function (x) { h += "<li><b>" + esc(x[0]) + "</b> " + esc(x[1]) + "</li>"; });
+    h += "</ul></div>";
+    h += '<div class="block"><h3 class="section-h">Words from this meeting</h3><dl class="glossary">';
+    GLOSSARY.forEach(function (g) { h += '<dt lang="tr">' + esc(g[0]) + "</dt><dd>" + esc(g[1]) + "</dd>"; });
+    h += "</dl></div>";
+    h += '<div class="actions"><button type="button" class="btn" id="again">Play again</button></div>';
+    h += "</section>";
+    stage.innerHTML = h;
+    document.getElementById("again").addEventListener("click", function () {
+      S.phase = "play"; S.i = 0; S.picks = []; S.orders = []; S.hint = false;
+      render();
+      window.scrollTo(0, 0);
+      focusId("sc-label", false);
+    });
+  }
+
+  function focusId(id, scroll) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    if (scroll) {
+      var target = el.closest(".reveal") || el;
+      target.scrollIntoView({ behavior: smooth(), block: "start" });
+    }
+  }
+
+  function render() {
+    if (S.phase === "intro") renderIntro();
+    else if (S.phase === "end") renderEnd();
+    else {
+      if (!S.orders[S.i]) S.orders[S.i] = shuffle(SCENES[S.i].options.length);
+      renderScene();
+    }
+    updateTop();
+  }
+
+  function sane() {
+    if (["intro", "play", "end"].indexOf(S.phase) < 0) S.phase = "intro";
+    if (typeof S.i !== "number" || S.i < 0 || S.i >= SCENES.length) S.i = 0;
+    if (!Array.isArray(S.picks)) S.picks = [];
+    if (!Array.isArray(S.orders)) S.orders = [];
+    if (S.phase === "end" && S.picks.filter(function (p) { return typeof p === "number"; }).length < SCENES.length) S.phase = "intro";
+  }
+
+  function boot(d) {
+    try {
+      if (d && d.S && typeof d.S === "object") Object.assign(S, d.S);
+    } catch (e) { /* start fresh */ }
+    sane();
+    render();
+  }
+
+  try {
+    if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+      window.claude.hot.snapshot(function () { return { S: S }; });
+    }
+  } catch (e) { /* not in a viewer */ }
+  var hot = window.claude && window.claude.hot;
+  if (hot && hot.ready) hot.ready(boot);
+  else boot(hot && hot.data ? hot.data : {});
+})();
+</script>
+</body>
+</html>
