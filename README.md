@@ -2,7 +2,7 @@
 
 An interactive game about consecutive interpretation. You play the interpreter in a business call between Hoca Nuri, a Turkish-speaking master calligrapher, and Dana Whitfield, the English-speaking director of an online arts program. For each line, you choose how to say it aloud, then see what the other person actually understood.
 
-**Live demo:** _add your GitHub Pages link here_
+**Live demo:** https://hanansahin.github.io/interpreters-dilemma/
 
 ## How it works
 
